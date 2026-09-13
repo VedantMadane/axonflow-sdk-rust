@@ -38,6 +38,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses a caller that does not declare redaction (`field_redact` at version
   1). `AxonFlowConfig` gains the public field `pep_handshake`, so a struct
   literal that names every field without `..Default::default()` must add it.
+- **Typed policy authoring, the v11 successor to the legacy policy routes.**
+  `client.typed_policies()` reaches the six `/api/v1/typed-policies` routes:
+  `edition()`, `validate(document, fixtures)`, `publish(document, fixtures)`,
+  `activate(digest, reason)`, `active()` and `system()`. The document is an
+  opaque `serde_json::Value`, as the spec declares it; the three spec-named
+  types (`EditionConstructReport`, `AuthoringFinding`,
+  `TypedAuthoringDocumentRequest`) are modelled and checked against the
+  pinned spec, and a JSON `null` collection reads as empty. The answer types
+  are `#[non_exhaustive]`, so a member a later release reads is not a
+  breaking change. Every refusal except a `401` is the new
+  `AxonFlowError::TypedPolicyRefusal` (status, reason, code, policy, message,
+  findings, retry_after); a `401` stays `ApiError`. Its `is_retryable()`
+  follows the platform's `Retry-After`, not the status alone: a `402`
+  `tier_limit` that carries one (admission could not be checked) is
+  retryable, the ceiling itself and the `429` caps are not, and a 5xx is,
+  except `catalog_not_configured`; a typed refusal never triggers fail-open.
+  `active()` is `None` only for the platform's `nothing_active`; any other
+  `404`, from a platform before v11.0.0 or a base URL that is not an agent,
+  is a refusal with status `404`, where the Go, Python, TypeScript and Java
+  SDKs still answer nothing active. `max_documents` counts customer-authored policies, not
+  documents. These routes need a v11.0.0 platform, and do not read the PEP
+  capability declaration, which is not sent on them.
+
+### Changed
+
+- **`AxonFlowError` is `#[non_exhaustive]`.** It gains `TypedPolicyRefusal`,
+  so a downstream exhaustive `match` changes once either way; the one `_` arm
+  it adds now also covers every variant a later release adds.
+
+### Fixed
+
+- **`PolicyCategory` no longer fails on a category the SDK does not know**
+  (#98). The platform ships its categories as data, and a v11 platform uses
+  categories this enum did not name (`security-dangerous`), so deserializing
+  the platform's JSON into it failed. An unknown category now reads as
+  `PolicyCategory::Unknown(String)` and re-serializes byte-identical, the
+  pattern `AuthZenObligationType` already uses (`as_str`, `is_known`,
+  `KNOWN_WIRE_VALUES`). The enum gains `SecurityDangerous`,
+  `ComplianceEuaiact`, `DangerousQueries`, `PiiDetection` and `SqlInjection`,
+  the categories the platform's shipped posture uses that it lacked, and the
+  known set is pinned to that posture (getaxonflow/axonflow-enterprise#4224).
+  It is now `#[non_exhaustive]`: a downstream exhaustive `match` needs a `_`
+  arm, a one-time change so that a new category is not a breaking one again.
 
 ## [0.10.0] - 2026-09-06: telemetry parity, and a cold-path ping that a short-lived process actually delivers
 
